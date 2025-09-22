@@ -1,0 +1,67 @@
+{
+  "summary": {
+    "total_detections": 5,
+    "total_fruits": 5,
+    "total_non_fruits": 0,
+    "fruits_by_type": {
+      "Desconocido": {
+        "total": 4,
+        "OK": 4,
+        "MALOGRADA": 0
+      },
+      "Manzana": {
+        "total": 1,
+        "OK": 1,
+        "MALOGRADA": 0
+      }
+    },
+    "fruits_by_status": {
+      "OK": 5,
+      "MALOGRADA": 0
+    },
+    "success_rate": 100.0
+  },
+  "detection_history": [
+    {
+      "timestamp": "2025-09-22T11:16:31.638769",
+      "is_fruit": true,
+      "fruit_type": "Desconocido",
+      "status": "OK",
+      "confidence": 0.0,
+      "score": 0.4628770616319445
+    },
+    {
+      "timestamp": "2025-09-22T11:17:32.416561",
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "status": "OK",
+      "confidence": 0.8,
+      "score": 0.2186515687003966
+    },
+    {
+      "timestamp": "2025-09-22T11:17:58.608573",
+      "is_fruit": true,
+      "fruit_type": "Desconocido",
+      "status": "OK",
+      "confidence": 0.0,
+      "score": 0.21555937913359763
+    },
+    {
+      "timestamp": "2025-09-22T11:18:36.446494",
+      "is_fruit": true,
+      "fruit_type": "Desconocido",
+      "status": "OK",
+      "confidence": 0.0,
+      "score": 0.1689649470899469
+    },
+    {
+      "timestamp": "2025-09-22T11:18:52.188408",
+      "is_fruit": true,
+      "fruit_type": "Desconocido",
+      "status": "OK",
+      "confidence": 0.0,
+      "score": 0.2493040054563489
+    }
+  ],
+  "last_updated": "2025-09-22T11:18:58.042826"
+}

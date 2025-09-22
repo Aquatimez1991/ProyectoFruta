@@ -1,0 +1,21 @@
+{
+  "timestamp": "20250920_015520",
+  "is_fruit": false,
+  "fruit_type": "No_Fruta",
+  "spoiled": false,
+  "confidence": 0.0,
+  "score": 0.0,
+  "file_paths": {
+    "original": "salidas/training_data/NO_FRUIT/No_Fruta/20250920_015520_No_Fruta_NO_FRUIT.jpg",
+    "result": null,
+    "mask": null
+  },
+  "analysis_details": {
+    "alert": "ALERTA: Circularidad muy baja: 0.05 (mín: 0.05)"
+  },
+  "image_shape": [
+    720,
+    1280,
+    3
+  ]
+}

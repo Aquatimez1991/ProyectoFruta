@@ -1,0 +1,15 @@
+{
+  "timestamp": "20250920_015532",
+  "is_fruit": true,
+  "fruit_type": "Desconocido",
+  "spoiled": 
+  {
+    "is_spoiled": true,
+    "spoilage_type": "MALOGRADA"
+  },
+  "details": {
+    "reason": "MALOGRADA",
+    "description": "La fruta presenta signos evidentes de deterioro, como moho, manchas oscuras y una textura blanda que indica que no es apta para el consumo."
+    }
+  }
+  
