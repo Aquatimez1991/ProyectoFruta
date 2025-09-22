@@ -1,15 +1,83 @@
 {
   "summary": {
-    "total_detections": 0,
-    "total_fruits": 0,
+    "total_detections": 5,
+    "total_fruits": 5,
     "total_non_fruits": 0,
-    "fruits_by_type": {},
+    "fruits_by_type": {
+      "Manzana": 5
+    },
     "fruits_by_status": {
       "OK": 0,
-      "MALOGRADA": 0
+      "MALOGRADA": 5
     },
     "success_rate": 0.0
   },
-  "detection_history": [],
-  "last_updated": "2025-09-22T13:55:00.631919"
+  "detection_history": [
+    {
+      "timestamp": "20250922_174315",
+      "classification": "mala",
+      "confidence": 0.8844481932039807,
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "spoiled": true,
+      "file_paths": {
+        "original": "salidas\\results\\20250922_174315_capture_20250922_174315.jpg",
+        "roi": "salidas\\results\\20250922_174315_roi_capture_20250922_174315.jpg",
+        "mask": "salidas\\masks\\20250922_174315_mask_capture_20250922_174315.jpg"
+      }
+    },
+    {
+      "timestamp": "20250922_174316",
+      "classification": "mala",
+      "confidence": 0.8844481932039807,
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "spoiled": true,
+      "file_paths": {
+        "original": "salidas\\results\\20250922_174316_capture_20250922_174316.jpg",
+        "roi": "salidas\\results\\20250922_174316_roi_capture_20250922_174316.jpg",
+        "mask": "salidas\\masks\\20250922_174316_mask_capture_20250922_174316.jpg"
+      }
+    },
+    {
+      "timestamp": "20250922_174317",
+      "classification": "mala",
+      "confidence": 0.8844481932039807,
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "spoiled": true,
+      "file_paths": {
+        "original": "salidas\\results\\20250922_174317_capture_20250922_174317.jpg",
+        "roi": "salidas\\results\\20250922_174317_roi_capture_20250922_174317.jpg",
+        "mask": "salidas\\masks\\20250922_174317_mask_capture_20250922_174317.jpg"
+      }
+    },
+    {
+      "timestamp": "20250922_175358",
+      "classification": "mala",
+      "confidence": 0.8844481932039807,
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "spoiled": true,
+      "file_paths": {
+        "original": "salidas\\results\\20250922_175358_capture_20250922_175358.jpg",
+        "roi": "salidas\\results\\20250922_175358_roi_capture_20250922_175358.jpg",
+        "mask": "salidas\\masks\\20250922_175358_mask_capture_20250922_175358.jpg"
+      }
+    },
+    {
+      "timestamp": "20250922_175843",
+      "classification": "mala",
+      "confidence": 0.8844481932039807,
+      "is_fruit": true,
+      "fruit_type": "Manzana",
+      "spoiled": true,
+      "file_paths": {
+        "original": "salidas\\results\\20250922_175843_capture_20250922_175843.jpg",
+        "roi": "salidas\\results\\20250922_175843_roi_capture_20250922_175843.jpg",
+        "mask": "salidas\\masks\\20250922_175843_mask_capture_20250922_175843.jpg"
+      }
+    }
+  ],
+  "last_updated": "2025-09-22T17:58:43.499340"
 }

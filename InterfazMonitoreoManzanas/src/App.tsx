@@ -9,6 +9,7 @@ import { HomePanel } from "./components/HomePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { ImageUpload } from "./components/ImageUpload";
 import { DetectionResults } from "./components/DetectionResults";
+import { DiagnosticPanel } from "./components/DiagnosticPanel";
 import { apiService, DetectionResult, StatsResponse } from "./services/api";
 
 export default function App() {
@@ -32,21 +33,36 @@ export default function App() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // Verificar conexión con backend al cargar
   useEffect(() => {
     checkBackendConnection();
     loadStats();
+    startCameraIfAvailable();
   }, []);
+
+  const startCameraIfAvailable = async () => {
+    try {
+      // Intentar iniciar la cámara automáticamente
+      await apiService.startCamera();
+      console.log('✅ Cámara iniciada automáticamente');
+    } catch (error) {
+      console.log('⚠️ No se pudo iniciar la cámara automáticamente:', error);
+    }
+  };
 
   const checkBackendConnection = async () => {
     try {
       const health = await apiService.checkHealth();
       setBackendConnected(health.model_loaded);
       setError(null);
+      console.log('✅ Backend conectado:', health);
     } catch (err) {
       setBackendConnected(false);
-      setError('No se pudo conectar con el backend. Asegúrate de que esté ejecutándose en http://localhost:8000');
+      const errorMsg = 'No se pudo conectar con el backend. Asegúrate de que esté ejecutándose en http://localhost:8000';
+      setError(errorMsg);
+      console.error('❌ Error conectando al backend:', err);
     }
   };
 
@@ -58,6 +74,17 @@ export default function App() {
       setBadCount(statsData.summary.fruits_by_status.MALOGRADA);
     } catch (err) {
       console.error('Error cargando estadísticas:', err);
+    }
+  };
+
+  const handleStatsReset = async () => {
+    try {
+      await apiService.resetStats();
+      console.log('✅ Estadísticas reseteadas correctamente');
+      // Recargar estadísticas después del reset
+      await loadStats();
+    } catch (error) {
+      console.error('❌ Error reseteando estadísticas:', error);
     }
   };
 
@@ -128,19 +155,50 @@ export default function App() {
     handleClassify(type);
   };
 
-  const handleToggleLive = () => {
-    setIsLive(!isLive);
-    if (!isLive) {
+  const handleToggleLive = async () => {
+    const newLiveState = !isLive;
+    setIsLive(newLiveState);
+    
+    if (newLiveState && backendConnected) {
+      // Usar backend para toggle live
+      try {
+        await apiService.toggleLiveMode();
+        console.log('Modo live activado con backend');
+      } catch (error) {
+        console.error('Error activando modo live:', error);
+      }
+    }
+    
+    if (newLiveState) {
       // Simular clasificación automática cuando se activa LIVE
       setTimeout(simulateAutoClassification, 3000);
     }
   };
 
-  const handleStartMonitoring = () => {
+  const handleStartMonitoring = async () => {
     setActiveTab("camera");
     setIsLive(true);
     setShowStats(false);
     setShowSettings(false);
+    
+    if (backendConnected) {
+      // Usar backend para monitoreo
+      try {
+        console.log('🔄 Iniciando monitoreo con backend...');
+        const result = await apiService.toggleLiveMode();
+        console.log('✅ Monitoreo iniciado:', result);
+        
+        // Iniciar streaming de video
+        setIsStreaming(true);
+        console.log('📹 Streaming de video iniciado');
+      } catch (error) {
+        console.error('❌ Error iniciando monitoreo:', error);
+        // Continuar con simulación si falla el backend
+        console.log('⚠️ Continuando con simulación...');
+      }
+    } else {
+      console.log('⚠️ Backend no conectado, usando simulación');
+    }
     
     // Activar modo de monitoreo automático completo
     setTimeout(simulateAutoClassification, 3000);
@@ -152,10 +210,23 @@ export default function App() {
     setShowStats(false);
     setAutoClassification(null);
     setIsAwaitingConfirmation(false);
+    setIsStreaming(false);
   };
 
-  const handleCapture = () => {
-    if (isLive) {
+  const handleCapture = async () => {
+    if (isLive && backendConnected) {
+      // Usar backend para captura real
+      try {
+        setIsProcessing(true);
+        const result = await apiService.captureAndDetect();
+        handleDetectionResult(result);
+      } catch (error) {
+        handleApiError(error instanceof Error ? error.message : 'Error en captura');
+      } finally {
+        setIsProcessing(false);
+      }
+    } else if (isLive) {
+      // Fallback a simulación si no hay backend
       simulateAutoClassification();
     }
   };
@@ -199,7 +270,7 @@ export default function App() {
     }
 
     if (activeTab === "stats" || showStats) {
-      return <StatsPanel goodCount={goodCount} badCount={badCount} stats={stats} />;
+      return <StatsPanel goodCount={goodCount} badCount={badCount} stats={stats} onResetStats={handleStatsReset} />;
     }
 
     if (activeTab === "home") {
@@ -232,6 +303,9 @@ export default function App() {
                 </p>
               </div>
             )}
+
+            {/* Panel de diagnóstico */}
+            <DiagnosticPanel />
 
             {/* Componente de subida de imágenes */}
             <ImageUpload 
@@ -275,6 +349,12 @@ export default function App() {
           <CameraPanel 
             isProcessing={isProcessing}
             lastClassification={lastClassification}
+            detectionResult={detectionResult}
+            backendConnected={backendConnected}
+            isStreaming={isStreaming}
+            onStartStreaming={() => setIsStreaming(true)}
+            onStopStreaming={() => setIsStreaming(false)}
+            onStatsReset={handleStatsReset}
           />
         </div>
         
@@ -283,6 +363,24 @@ export default function App() {
           <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <p className="text-blue-700 text-center">
               <strong>Modo Manual:</strong> Use los botones de clasificación manual o active el botón "MONITOREO" para iniciar la detección automática.
+            </p>
+            {backendConnected && (
+              <p className="text-green-600 text-center mt-2">
+                <strong>✓ Backend conectado:</strong> Las funciones de cámara usarán el modelo de IA real
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Indicador de estado del backend en modo live */}
+        {activeTab === "camera" && isLive && (
+          <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+            <p className="text-green-700 text-center">
+              <strong>Modo LIVE activo:</strong> 
+              {backendConnected ? 
+                " Usando modelo de IA del backend para detección en tiempo real" :
+                " Usando simulación (backend no disponible)"
+              }
             </p>
           </div>
         )}

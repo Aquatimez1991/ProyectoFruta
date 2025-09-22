@@ -13,11 +13,14 @@ import numpy as np
 import onnxruntime as ort
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import aiofiles
+import io
 
 from detection_service import DetectionService
+from camera_service import CameraService
 
 # Configuración
 UPLOAD_DIR = Path("uploads")
@@ -38,14 +41,21 @@ app = FastAPI(
 # Configurar CORS para permitir comunicación con el frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite y otros puertos comunes
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:3000"],  # Vite y otros puertos comunes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Inicializar servicio de detección
+# Inicializar servicios
 detection_service = DetectionService()
+camera_service = CameraService()
+
+# Configurar cámara con el servicio de detección
+camera_service.set_detection_service(detection_service)
+
+# Montar archivos estáticos para servir imágenes
+app.mount("/static", StaticFiles(directory="salidas"), name="static")
 
 # Modelos Pydantic para las respuestas
 class DetectionResult(BaseModel):
@@ -178,6 +188,144 @@ async def reset_stats():
         return {"message": "Estadísticas reseteadas correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reseteando estadísticas: {str(e)}")
+
+@app.post("/capture")
+async def capture_and_detect():
+    """
+    Capturar frame actual de la cámara y procesar
+    """
+    try:
+        # Usar el servicio de cámara real
+        result = camera_service.capture_frame()
+        
+        if result is None:
+            raise HTTPException(status_code=400, detail="No se pudo capturar frame de la cámara")
+        
+        return DetectionResult(**result)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en captura: {str(e)}")
+
+@app.post("/toggle_live")
+async def toggle_live_mode():
+    """
+    Toggle modo live de la cámara
+    """
+    try:
+        is_live = camera_service.toggle_live()
+        return {
+            "message": f"Modo live {'activado' if is_live else 'desactivado'}", 
+            "is_live": is_live,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error toggling live mode: {str(e)}")
+
+@app.post("/camera/start")
+async def start_camera():
+    """
+    Iniciar la cámara
+    """
+    try:
+        success = camera_service.start_camera()
+        if success:
+            return {"message": "Cámara iniciada correctamente", "status": "started"}
+        else:
+            raise HTTPException(status_code=500, detail="No se pudo iniciar la cámara")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error iniciando cámara: {str(e)}")
+
+@app.post("/camera/stop")
+async def stop_camera():
+    """
+    Detener la cámara
+    """
+    try:
+        camera_service.stop_camera()
+        return {"message": "Cámara detenida correctamente", "status": "stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deteniendo cámara: {str(e)}")
+
+@app.get("/camera/status")
+async def camera_status():
+    """
+    Obtener estado de la cámara
+    """
+    return {
+        "is_running": camera_service.is_running,
+        "is_live": camera_service.is_live,
+        "frame_count": camera_service.frame_idx,
+        "has_latest_frame": camera_service.latest_frame is not None,
+        "has_latest_result": camera_service.latest_result is not None
+    }
+
+@app.get("/test")
+async def test_endpoint():
+    """
+    Endpoint de prueba para verificar que la API funciona
+    """
+    return {
+        "status": "ok", 
+        "message": "API funcionando correctamente",
+        "timestamp": datetime.now().isoformat(),
+        "model_loaded": detection_service.is_model_loaded(),
+        "camera_running": camera_service.is_running
+    }
+
+@app.get("/video_stream")
+async def video_stream():
+    """
+    Stream de video en tiempo real desde la cámara
+    """
+    def generate_frames():
+        while camera_service.is_running:
+            frame = camera_service.get_latest_frame()
+            if frame is not None:
+                # Codificar frame como JPEG
+                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    frame_bytes = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # Control de FPS
+            import time
+            time.sleep(0.033)  # ~30 FPS
+    
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+@app.get("/latest_image")
+async def get_latest_image():
+    """
+    Obtener la imagen más reciente procesada
+    """
+    try:
+        # Buscar la imagen más reciente en salidas/results
+        results_dir = RESULTS_DIR / "results"
+        if not results_dir.exists():
+            raise HTTPException(status_code=404, detail="No hay imágenes procesadas")
+        
+        # Obtener archivos de imagen ordenados por fecha de modificación
+        image_files = []
+        for ext in ['*.jpg', '*.jpeg', '*.png']:
+            image_files.extend(results_dir.glob(ext))
+        
+        if not image_files:
+            raise HTTPException(status_code=404, detail="No hay imágenes procesadas")
+        
+        # Ordenar por fecha de modificación (más reciente primero)
+        latest_image = max(image_files, key=lambda x: x.stat().st_mtime)
+        
+        return FileResponse(
+            path=str(latest_image),
+            media_type="image/jpeg",
+            filename=latest_image.name
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error obteniendo imagen: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

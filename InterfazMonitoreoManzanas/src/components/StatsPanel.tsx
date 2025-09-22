@@ -1,14 +1,16 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, TrendingDown, Target, Clock, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, Target, Clock, RefreshCw, Trash2 } from "lucide-react";
 import { StatsResponse } from "../services/api";
+import { Button } from "./ui/button";
 
 interface StatsPanelProps {
   goodCount: number;
   badCount: number;
   stats?: StatsResponse | null;
+  onResetStats?: () => void;
 }
 
-export function StatsPanel({ goodCount, badCount, stats }: StatsPanelProps) {
+export function StatsPanel({ goodCount, badCount, stats, onResetStats }: StatsPanelProps) {
   const total = goodCount + badCount;
   const successRate = total > 0 ? Math.round((goodCount / total) * 100) : 0;
   
@@ -60,7 +62,20 @@ export function StatsPanel({ goodCount, badCount, stats }: StatsPanelProps) {
     <div className="flex-1 p-6 bg-gray-50">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="bg-white rounded-lg p-6 border border-gray-200">
-          <h2 className="text-xl text-gray-800 mb-6">Estadísticas de Clasificación</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl text-gray-800">Estadísticas de Clasificación</h2>
+            {onResetStats && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onResetStats}
+                className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                Resetear Estadísticas
+              </Button>
+            )}
+          </div>
           
           {/* Métricas principales */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
