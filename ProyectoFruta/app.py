@@ -279,7 +279,8 @@ async def video_stream():
     """
     def generate_frames():
         while camera_service.is_running:
-            frame = camera_service.get_latest_frame()
+            # Usar frame con overlay visual si está disponible
+            frame = camera_service.get_latest_display_frame()
             if frame is not None:
                 # Codificar frame como JPEG
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])

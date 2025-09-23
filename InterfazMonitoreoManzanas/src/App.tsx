@@ -103,8 +103,10 @@ export default function App() {
       }
     }
     
-    // Recargar estadísticas
-    loadStats();
+    // Recargar estadísticas después de un pequeño delay para permitir que el backend actualice
+    setTimeout(() => {
+      loadStats();
+    }, 500);
   };
 
   const handleApiError = (errorMessage: string) => {
@@ -204,7 +206,19 @@ export default function App() {
     setTimeout(simulateAutoClassification, 3000);
   };
 
-  const handleExit = () => {
+  const handleExit = async () => {
+    // Cerrar cámara si el backend está conectado
+    if (backendConnected) {
+      try {
+        console.log('🔄 Cerrando cámara...');
+        await apiService.stopCamera();
+        console.log('✅ Cámara cerrada correctamente');
+      } catch (error) {
+        console.error('❌ Error cerrando cámara:', error);
+      }
+    }
+    
+    // Resetear estados de la interfaz
     setActiveTab("home");
     setIsLive(false);
     setShowStats(false);

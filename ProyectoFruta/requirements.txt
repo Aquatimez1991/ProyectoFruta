@@ -1,12 +1,14 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-opencv-python==4.12.0.88
-onnxruntime==1.22.1
-numpy==2.2.6
-Pillow==11.3.0
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-dotenv==1.0.0
-pydantic==2.5.0
-aiofiles==23.2.1
+fastapi==0.104.1  # Framework para crear la API REST del backend
+uvicorn[standard]==0.24.0  # Servidor ASGI para ejecutar aplicaciones FastAPI
+python-multipart==0.0.6  # Manejo de archivos subidos (imágenes) en endpoints FastAPI
+opencv-python==4.12.0.88  # Procesamiento de imágenes, segmentación y extracción de características
+onnxruntime==1.22.1  # Inferencia de modelos ONNX para clasificación de frutas
+numpy==2.2.6  # Operaciones numéricas y manejo de arrays en procesamiento de imágenes y datos
+Pillow==11.3.0  # Manipulación de imágenes (carga, guardado, conversión entre formatos)
+python-jose[cryptography]==3.3.0  # Autenticación y manejo de tokens JWT (si se usa seguridad en la API)
+passlib[bcrypt]==1.7.4  # Hashing de contraseñas para autenticación de usuarios
+python-dotenv==1.0.0  # Carga de variables de entorno desde archivos .env
+pydantic==2.5.0  # Validación y tipado de datos en FastAPI (modelos de entrada/salida)
+aiofiles==23.2.1  # Lectura/escritura asíncrona de archivos (usado en FastAPI para manejar imágenes)
+torch==2.2.2  # Framework de deep learning para entrenamiento y manejo de modelos de clasificación
+torchvision==0.17.2  # Utilidades para procesamiento de imágenes y modelos preentrenados en PyTorch

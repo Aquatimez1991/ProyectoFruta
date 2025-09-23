@@ -39,6 +39,10 @@ class CameraService:
         
         # Estadísticas
         self.stats = {"capturas_total": 0, "buena": 0, "mala": 0}
+        
+        # Control de actualización de estadísticas en modo live
+        self.last_live_classification = None
+        self.live_classification_count = 0
         self.detection_history = []
     
     def add_callback(self, callback: Callable[[Dict[str, Any]], None]):
@@ -61,6 +65,21 @@ class CameraService:
     def start_camera(self, camera_index: int = 0) -> bool:
         """Iniciar la cámara (igual que detectar_fruta.py)"""
         try:
+            # Si la cámara ya está corriendo, no hacer nada
+            if self.is_running and self.cap and self.cap.isOpened():
+                print(f"Cámara {camera_index} ya está corriendo")
+                return True
+            
+            # Si hay una cámara anterior, limpiarla primero
+            if self.cap:
+                self.cap.release()
+                self.cap = None
+            
+            # Esperar un poco antes de reiniciar
+            import time
+            time.sleep(0.5)
+            
+            # Crear nueva instancia de cámara
             self.cap = cv2.VideoCapture(camera_index)
             if not self.cap.isOpened():
                 print(f"No se pudo abrir la cámara {camera_index}")
@@ -71,7 +90,10 @@ class CameraService:
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             
             self.is_running = True
+            self.is_live = False  # Empezar en modo manual
             self.frame_idx = 0
+            self.latest_frame = None
+            self.latest_result = None
             
             # Iniciar thread del loop principal
             self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
@@ -100,8 +122,12 @@ class CameraService:
     
     def toggle_live(self) -> bool:
         """Toggle modo live (igual que tecla 'l' en detectar_fruta.py)"""
+        # Si la cámara no está corriendo, intentar iniciarla
         if not self.is_running:
-            return False
+            print("Cámara no está corriendo, intentando iniciar...")
+            if not self.start_camera():
+                print("No se pudo iniciar la cámara")
+                return False
         
         self.is_live = not self.is_live
         print(f"Modo live: {'ON' if self.is_live else 'OFF'}")
@@ -109,7 +135,15 @@ class CameraService:
     
     def capture_frame(self) -> Optional[Dict[str, Any]]:
         """Capturar frame actual (igual que tecla 'c' en detectar_fruta.py)"""
-        if not self.is_running or self.latest_frame is None:
+        # Si la cámara no está corriendo, intentar iniciarla
+        if not self.is_running:
+            print("Cámara no está corriendo, intentando iniciar...")
+            if not self.start_camera():
+                print("No se pudo iniciar la cámara")
+                return None
+        
+        if self.latest_frame is None:
+            print("No hay frame disponible para capturar")
             return None
         
         # Procesar frame actual
@@ -118,8 +152,26 @@ class CameraService:
         if result:
             # Guardar captura
             self._save_capture(self.latest_frame, result)
-            self.stats["capturas_total"] += 1
             
+            # Actualizar estadísticas usando el DetectionService si está disponible
+            if hasattr(self, 'detection_service') and self.detection_service:
+                # Usar el DetectionService para actualizar estadísticas del archivo JSON
+                import asyncio
+                try:
+                    # Crear un loop de evento si no existe
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    # Ejecutar la actualización de estadísticas
+                    loop.run_until_complete(self.detection_service._update_stats(result))
+                except Exception as e:
+                    print(f"Error actualizando estadísticas: {e}")
+            
+            # También actualizar estadísticas locales para compatibilidad
+            self.stats["capturas_total"] += 1
             if result.get("is_fruit"):
                 if result.get("spoiled"):
                     self.stats["mala"] += 1
@@ -127,6 +179,89 @@ class CameraService:
                     self.stats["buena"] += 1
         
         return result
+    
+    def _update_stats_for_live_mode(self, result: Dict[str, Any]):
+        """Actualizar estadísticas en modo live usando DetectionService"""
+        current_classification = result.get("classification", "")
+        
+        # Solo actualizar estadísticas si hay un cambio significativo en la clasificación
+        # o si es la primera clasificación
+        if (self.last_live_classification != current_classification and 
+            current_classification not in ["no_fruta", "desconocido"]):
+            
+            self.last_live_classification = current_classification
+            self.live_classification_count += 1
+            
+            # Actualizar estadísticas usando DetectionService
+            if hasattr(self, 'detection_service') and self.detection_service:
+                import asyncio
+                try:
+                    # Crear un loop de evento si no existe
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    # Ejecutar la actualización de estadísticas
+                    loop.run_until_complete(self.detection_service._update_stats(result))
+                    print(f"📊 Estadísticas actualizadas en modo live: {current_classification}")
+                except Exception as e:
+                    print(f"Error actualizando estadísticas en modo live: {e}")
+            
+            # También actualizar estadísticas locales para compatibilidad
+            if result.get("is_fruit"):
+                if result.get("spoiled"):
+                    self.stats["mala"] += 1
+                else:
+                    self.stats["buena"] += 1
+            self.stats["capturas_total"] += 1
+    
+    def _create_display_frame(self, frame: np.ndarray, mask: np.ndarray, bbox: Optional[tuple], 
+                             final_label: str, final_conf: float, source: str) -> np.ndarray:
+        """Crear frame con overlay visual (igual que detectar_fruta.py)"""
+        display = frame.copy()
+        
+        # 1) Overlay de máscara (transparente)
+        if mask is not None and mask.any():
+            mask_color = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+            display = cv2.addWeighted(display, 1.0, mask_color, 0.25, 0)
+        
+        # 2) Bounding box y texto de clasificación
+        if bbox is not None:
+            x, y, w, h = bbox
+            
+            # Color del bounding box según clasificación
+            if "buena" in final_label:
+                color = (0, 255, 0)  # Verde para buena
+            elif "mala" in final_label:
+                color = (0, 0, 255)  # Rojo para mala
+            else:
+                color = (255, 255, 0)  # Amarillo para otros
+            
+            # Dibujar bounding box
+            cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
+            
+            # Texto de clasificación
+            text = f"{final_label} ({source}) {final_conf:.2f}"
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            text_x = x
+            text_y = max(15, y - 10)
+            
+            # Fondo para el texto
+            cv2.rectangle(display, (text_x, text_y - text_size[1] - 5), 
+                         (text_x + text_size[0] + 5, text_y + 5), color, -1)
+            
+            # Texto
+            cv2.putText(display, text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        # 3) Instrucciones (igual que detectar_fruta.py)
+        instructions = "Presiona 'c' capturar | 's' stats | 'q' salir | 'l' live on/off"
+        cv2.putText(display, instructions, (10, 20),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        return display
     
     def _camera_loop(self):
         """Loop principal de la cámara (igual que detectar_fruta.py)"""
@@ -150,6 +285,9 @@ class CameraService:
                 if result:
                     self.latest_result = result
                     self.notify_callbacks(result)
+                    
+                    # Actualizar estadísticas también en modo live
+                    self._update_stats_for_live_mode(result)
             
             # Control de FPS (igual que detectar_fruta.py)
             time.sleep(0.033)  # ~30 FPS
@@ -196,6 +334,9 @@ class CameraService:
             fruit_type = "Manzana" if is_fruit else "No_Fruta"
             spoiled = final_label == "mala" if is_fruit else False
             
+            # Crear frame con overlay visual (igual que detectar_fruta.py)
+            display_frame = self._create_display_frame(frame, mask, bbox, final_label, final_conf, source)
+            
             result = {
                 "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
                 "classification": final_label,
@@ -211,7 +352,8 @@ class CameraService:
                     "mask": None
                 },
                 "bbox": bbox,
-                "source": source
+                "source": source,
+                "display_frame": display_frame  # Frame con overlay visual
             }
             
             return result
@@ -372,6 +514,12 @@ class CameraService:
     
     def get_latest_frame(self) -> Optional[np.ndarray]:
         """Obtener el frame más reciente"""
+        return self.latest_frame
+    
+    def get_latest_display_frame(self) -> Optional[np.ndarray]:
+        """Obtener el frame más reciente con overlay visual"""
+        if self.latest_result and 'display_frame' in self.latest_result:
+            return self.latest_result['display_frame']
         return self.latest_frame
     
     def get_latest_result(self) -> Optional[Dict[str, Any]]:

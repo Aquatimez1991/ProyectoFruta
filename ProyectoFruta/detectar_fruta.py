@@ -7,6 +7,108 @@ from collections import deque
 from datetime import datetime
 
 # ----------------------------
+# PRUEBA DE DETECCIÓN EN VIVO
+# ----------------------------
+
+def identify_fruit_type(bgr, fruit_mask):
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    masked_hsv = cv2.bitwise_and(hsv, hsv, mask=fruit_mask)
+    fruit_pixels = masked_hsv[fruit_mask > 0]
+
+    if len(fruit_pixels) == 0:
+        return "Desconocido", 0.0
+
+    # ---- Estadísticas de color ----
+    mean_h, mean_s, mean_v = np.mean(fruit_pixels, axis=0)
+    std_h, std_s, std_v = np.std(fruit_pixels, axis=0)
+
+    hist_h = cv2.calcHist([masked_hsv], [0], fruit_mask, [180], [0, 180]).flatten()
+    hist_h /= hist_h.sum() + 1e-5
+    dominant_h = np.argmax(hist_h)
+
+    # Porcentajes de píxeles en rangos clave
+    def percent_in_range(h_low, h_high):
+        if h_low <= h_high:
+            return hist_h[h_low:h_high + 1].sum()
+        else:  # caso circular
+            return hist_h[h_low:180].sum() + hist_h[0:h_high + 1].sum()
+
+    perc_red = percent_in_range(0, 10) + percent_in_range(170, 180)
+    perc_yellow = percent_in_range(20, 40)
+    perc_green = percent_in_range(35, 85)
+    perc_orange = percent_in_range(10, 25)
+    perc_purple = percent_in_range(120, 160)
+
+    # ---- Medidas de forma ----
+    contours, _ = cv2.findContours(fruit_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return "Desconocido", 0.0
+
+    largest = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest)
+    area = cv2.contourArea(largest)
+    perimeter = cv2.arcLength(largest, True)
+
+    aspect_ratio = max(w, h) / (min(w, h) + 1e-5)
+    circularity = (4 * np.pi * area / (perimeter * perimeter)) if perimeter > 0 else 0
+    extent = area / (w * h + 1e-5)
+    hull = cv2.convexHull(largest)
+    hull_area = cv2.contourArea(hull)
+    solidity = area / (hull_area + 1e-5)
+
+    # Eccentricidad con elipse
+    eccentricity = 0.0
+    if len(largest) >= 5:
+        ellipse = cv2.fitEllipse(largest)
+        (MA, ma) = ellipse[1]
+        if ma > 0:
+            eccentricity = np.sqrt(1 - (MA / ma) ** 2)
+
+    # Hu Moments
+    hu = cv2.HuMoments(cv2.moments(largest)).flatten()
+
+    # ---- Reglas por fruta ----
+    scores = {}
+
+    if perc_red > 0.3 and circularity > 0.75 and solidity > 0.9:
+        scores["Manzana Roja"] = perc_red + mean_s / 255
+
+    if perc_green > 0.3 and circularity > 0.75 and solidity > 0.9:
+        scores["Manzana Verde"] = perc_green + mean_s / 255
+
+    if perc_yellow > 0.25 and aspect_ratio > 2.0 and eccentricity > 0.85:
+        scores["Plátano"] = perc_yellow + (1 - circularity) + aspect_ratio / 3
+
+    if perc_orange > 0.3 and circularity > 0.8 and solidity > 0.9:
+        scores["Naranja"] = perc_orange + mean_s / 255
+
+    if perc_yellow > 0.3 and 0.6 < circularity < 0.8 and aspect_ratio < 2.0:
+        scores["Limón"] = perc_yellow + mean_v / 255
+
+    if perc_red > 0.3 and circularity < 0.7 and solidity < 0.9:
+        scores["Fresa"] = perc_red + std_h / 50
+
+    if (perc_purple > 0.15 or perc_green > 0.2) and circularity > 0.85 and extent < 0.6:
+         if area < 5000:  # ajusta según tamaño en tus capturas
+           scores["Uva"] = perc_purple + perc_green + (1 - extent)
+
+    if perc_green > 0.2 and 1.3 < aspect_ratio < 1.8 and 0.5 < eccentricity < 0.8:
+        scores["Pera"] = perc_green + (1 - circularity) + eccentricity
+
+    # ---- Resultado ----
+    if scores:
+        fruit_type = max(scores, key=scores.get)
+        confidence = min(1.0, scores[fruit_type])
+    else:
+        fruit_type, confidence = "Desconocido", 0.0
+
+    return fruit_type, confidence
+
+# ----------------------------
+# PRUEBA DE DETECCIÓN EN VIVO
+# ----------------------------
+
+# ----------------------------
 # Configuración (ajustable)
 # ----------------------------
 MODEL_PATH = "modelo_manzana.onnx"
@@ -260,9 +362,23 @@ while True:
     else:
         final_label, final_conf, source = fuse_labels(model_label, model_conf or 0.0, heur_label or model_label, heur_conf or (model_conf or 0.0))
 
+
+# ----------------------------
+# PRUEBA DE DETECCIÓN EN VIVO
+# ----------------------------
+
+# Identificación heurística del tipo de fruta
+    fruit_type, fruit_type_conf = "Desconocido", 0.0
+    if mask is not None and mask.any():
+     fruit_type, fruit_type_conf = identify_fruit_type(frame, mask)
+# ----------------------------
+# PRUEBA DE DETECCIÓN EN VIVO
+# ----------------------------
+
     # 4) mostrar overlay en vivo (bbox, mask, label sólo cuando ROI existe)
     display = vis.copy()
     if mask is not None and mask.any():
+        fruit_type, fruit_type_conf = identify_fruit_type(frame, mask)
         # overlay mask (transparente)
         mask_color = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         display = cv2.addWeighted(display, 1.0, mask_color, 0.25, 0)
@@ -272,6 +388,8 @@ while True:
         cv2.rectangle(display, (x,y), (x+w, y+h), color, 2)
         cv2.putText(display, f"{final_label} ({source}) {final_conf:.2f}", (x, max(15,y-10)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(display, f"Tipo: {fruit_type} ({fruit_type_conf:.2f})", (x, y+h+25),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,180,255), 2)
 
     # mostrar instrucciones arriba
     cv2.putText(display, "Presiona 'c' capturar | 's' stats | 'q' salir | 'l' live on/off", (10,20),
@@ -303,7 +421,7 @@ while True:
             stats["buena"] += 1
         elif "mala" in final_label:
             stats["mala"] += 1
-        print(f"📸 Captura guardada ({os_ts}) -> Resultado: {final_label} | Confianza: {final_conf:.2f} | Fuente: {source}")
+        print(f"📸 Captura guardada ({os_ts}) -> Resultado: {final_label} | Confianza: {final_conf:.2f} | Fuente: {source} | Tipo: {fruit_type} ({fruit_type_conf:.2f})")
 
 # cleanup
 cap.release()
