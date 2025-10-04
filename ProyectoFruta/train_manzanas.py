@@ -3,86 +3,143 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, models
-import os
+from torch.cuda.amp import GradScaler, autocast
+from tqdm import tqdm  # 🔹 Barra de progreso
 
-# 🔹 Configuración
-data_dir = "dataset"  # cambia si tu dataset está en otra ruta
-batch_size = 16
-epochs = 10
-learning_rate = 0.001
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# =====================
+# CONFIGURACIÓN GENERAL
+# =====================
+DATA_DIR = "dataset"  # Ajusta si tu dataset está en otra carpeta
+BATCH_SIZE = 32
+NUM_EPOCHS = 20
+LEARNING_RATE = 0.001
 
-# 🔹 Transformaciones (augmentación + normalización)
-train_transforms = transforms.Compose([
+# Transformaciones
+transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(20),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+    transforms.RandomRotation(10),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], 
+    transforms.Normalize([0.485, 0.456, 0.406],
                          [0.229, 0.224, 0.225])
 ])
 
-val_transforms = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], 
-                         [0.229, 0.224, 0.225])
-])
+# Dataset
+train_dataset = datasets.ImageFolder(DATA_DIR + "/train", transform=transform)
+val_dataset = datasets.ImageFolder(DATA_DIR + "/val", transform=transform)
 
-# 🔹 Cargar dataset
-train_dataset = datasets.ImageFolder(os.path.join(data_dir, "train"), transform=train_transforms)
-val_dataset = datasets.ImageFolder(os.path.join(data_dir, "val"), transform=val_transforms)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE,
+                          shuffle=True, num_workers=0, pin_memory=True)  # 🔹 num_workers=0 en Windows
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE,
+                        shuffle=False, num_workers=0, pin_memory=True)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+# =====================
+# SELECCIÓN DE MODELO
+# =====================
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"🔹 Usando dispositivo: {device}")
 
-# 🔹 Modelo preentrenado (MobileNetV2)
-model = models.mobilenet_v2(pretrained=True)
-model.classifier[1] = nn.Linear(model.classifier[1].in_features, 2)  # 2 clases: buena/mala
+# 🔹 Modelo recomendado (ResNet18)
+model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+model.fc = nn.Linear(model.fc.in_features, 2)
+
+# 🔹 Opción alternativa (MobileNetV2)
+# model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+# model.classifier[1] = nn.Linear(model.classifier[1].in_features, 2)
+
+# 🔹 Opción alternativa (EfficientNet-B0)
+# model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+# model.classifier[1] = nn.Linear(model.classifier[1].in_features, 2)
+
 model = model.to(device)
 
-# 🔹 Pérdida y optimizador
+# =====================
+# ENTRENAMIENTO
+# =====================
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-# 🔹 Entrenamiento
-for epoch in range(epochs):
+# GradScaler solo si hay CUDA
+scaler = GradScaler(enabled=torch.cuda.is_available())
+
+best_val_loss = float("inf")
+early_stop_counter = 0
+PATIENCE = 5
+
+for epoch in range(NUM_EPOCHS):
+    # -----------------
+    # FASE DE TRAINING
+    # -----------------
     model.train()
-    train_loss, correct, total = 0, 0, 0
-    for images, labels in train_loader:
+    running_loss, correct, total = 0.0, 0, 0
+
+    train_loop = tqdm(train_loader, desc=f"Época {epoch+1}/{NUM_EPOCHS} [Entrenando]", leave=False)
+
+    for images, labels in train_loop:
         images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
 
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
-        total += labels.size(0)
-        correct += predicted.eq(labels).sum().item()
-
-    val_loss, val_correct, val_total = 0, 0, 0
-    model.eval()
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images, labels = images.to(device), labels.to(device)
+        with autocast(enabled=torch.cuda.is_available()):
             outputs = model(images)
             loss = criterion(outputs, labels)
-            val_loss += loss.item()
-            _, predicted = outputs.max(1)
-            val_total += labels.size(0)
-            val_correct += predicted.eq(labels).sum().item()
 
-    print(f"Epoch {epoch+1}/{epochs} | "
-          f"Train Acc: {100*correct/total:.2f}% | Val Acc: {100*val_correct/val_total:.2f}%")
+        if device.type == "cuda":
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
-# 🔹 Guardar modelo en ONNX
-dummy_input = torch.randn(1, 3, 224, 224, device=device)
-torch.onnx.export(model, dummy_input, "modelo_manzana.onnx",
-                  input_names=["input"], output_names=["output"],
-                  dynamic_axes={"input": {0: "batch_size"},
-                                "output": {0: "batch_size"}})
+        running_loss += loss.item() * images.size(0)
+        _, predicted = torch.max(outputs, 1)
+        correct += (predicted == labels).sum().item()
+        total += labels.size(0)
 
-print("✅ Entrenamiento completado y modelo exportado a modelo_manzana.onnx")
+        train_loop.set_postfix(loss=loss.item())
+
+    train_loss = running_loss / len(train_loader.dataset)
+    train_acc = 100 * correct / total
+
+    # -----------------
+    # FASE DE VALIDACIÓN
+    # -----------------
+    model.eval()
+    val_loss, correct, total = 0.0, 0, 0
+
+    val_loop = tqdm(val_loader, desc=f"Época {epoch+1}/{NUM_EPOCHS} [Validando]", leave=False)
+
+    with torch.no_grad():
+        for images, labels in val_loop:
+            images, labels = images.to(device), labels.to(device)
+
+            with autocast(enabled=torch.cuda.is_available()):
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+
+            val_loss += loss.item() * images.size(0)
+            _, predicted = torch.max(outputs, 1)
+            correct += (predicted == labels).sum().item()
+            total += labels.size(0)
+
+            val_loop.set_postfix(loss=loss.item())
+
+    val_loss /= len(val_loader.dataset)
+    val_acc = 100 * correct / total
+
+    print(f"\n📊 Época [{epoch+1}/{NUM_EPOCHS}] "
+          f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
+          f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+
+    # Guardar mejor modelo
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        torch.save(model.state_dict(), "best_model.pth")
+        early_stop_counter = 0
+    else:
+        early_stop_counter += 1
+        if early_stop_counter >= PATIENCE:
+            print("⏹️ Early stopping activado. Entrenamiento detenido.")
+            break
+
+print("✅ Entrenamiento finalizado. Modelo guardado como best_model.pth")
